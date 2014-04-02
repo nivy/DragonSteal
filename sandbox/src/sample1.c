@@ -24,20 +24,26 @@
 #include <AccelStepper.h>
 
 // Define some steppers and the pins the will use
-AccelStepper stepper1(1, 12, 11); 
+AccelStepper stepper(1, 12, 11); 
 
 #define stepsPerRev      1600
-#define stepPin          12
-#define dirPin           11
-#define ledPin           13
-#define rotateLeftPin    7
-#define rotateRightPin   6
-#define savePositionAPin 5
-#define savePositionBPin 4
-#define gotoPositionAPin 3
-#define gotoPositionBPin 2
-#define maxSpeedPin      0
-#define accelPin         1
+#define RIGHT = 1;
+#define LEFT = -1;
+#define A = 1;
+#define B = -1;
+
+//PIN definitions
+#define PIN_STEP            12
+#define PIN_DIRECTION       11
+#define PIN_LED             13
+#define PIN_ROTATE_LEFT     7
+#define PIN_ROTATE_RIGHT    6
+#define PIN_SAVE_POSITION_A 5
+#define PIN_SAVE_POSITION_B 4
+#define PIN_GOTO_POSITION_A 3
+#define PIN_GOTO_POSITION_B 2
+#define PIN_MAX_SPEED       0
+#define PIN_ACCELERATION    1
 
 // Set this to zero if you don't want debug messages printed
 #define printDebug       0
@@ -65,15 +71,15 @@ float fStepsPerSecond = 0.0;
 
 void setup() 
 {
-  pinMode(stepPin, OUTPUT);
-  pinMode(dirPin, OUTPUT);
-  pinMode(ledPin, OUTPUT);
-  pinMode(rotateLeftPin, INPUT);
-  pinMode(rotateRightPin, INPUT);
-  pinMode(savePositionAPin, INPUT);
-  pinMode(savePositionBPin, INPUT);
-  pinMode(gotoPositionAPin, INPUT);
-  pinMode(gotoPositionBPin, INPUT);
+  pinMode(PIN_STEP, OUTPUT);
+  pinMode(PIN_DIRECTION, OUTPUT);
+  pinMode(PIN_LED, OUTPUT);
+  pinMode(PIN_ROTATE_LEFT, INPUT);
+  pinMode(PIN_ROTATE_RIGHT, INPUT);
+  pinMode(PIN_SAVE_POSITION_A, INPUT);
+  pinMode(PIN_SAVE_POSITION_B, INPUT);
+  pinMode(PIN_GOTO_POSITION_A, INPUT);
+  pinMode(PIN_GOTO_POSITION_B, INPUT);
   
   if (printDebug)
   {
@@ -84,11 +90,11 @@ void setup()
   // blink the LED:
   blink(2);
 
-  stepper1.setMaxSpeed(800.0);
-  stepper1.setAcceleration(600.0);
+  stepper.setMaxSpeed(800.0);
+  stepper.setAcceleration(600.0);
 
   // Grab both speed and accel before we start
-  maxSpeed = analogRead(maxSpeedPin);
+  maxSpeed = analogRead(PIN_MAX_SPEED);
   // Do the math to scale the 0-1023 value (maxSpeed) to 
   // a range of MIN_STEPS_PER_SECOND to MAX_STEPS_PER_SECOND
   fMaxSpeed = maxSpeed / 1023.0;
@@ -97,128 +103,89 @@ void setup()
   {
     fStepsPerSecond = 1000;
   }
-  accel = analogRead(accelPin)/ACCEL_RATIO;
+  accel = analogRead(PIN_ACCELERATION)/ACCEL_RATIO;
 }
 
-void loop() 
-{  
-  // First, we need to see if either rotate button is down. They always take precidence.
-  if(digitalRead(rotateLeftPin))
-  {
-    stepper1.setSpeed(-fStepsPerSecond);
-    while(digitalRead(rotateLeftPin))
-    {
-      CheckPots();
-      stepper1.runSpeed();
-      stepper1.setSpeed(-fStepsPerSecond);
-    }
-  }
-  else if (digitalRead(rotateRightPin))
-  {
-    stepper1.setSpeed(fStepsPerSecond);
-    while(digitalRead(rotateRightPin))
-    {
-      CheckPots();
-      stepper1.runSpeed();
-      stepper1.setSpeed(fStepsPerSecond);
-    }
-  }
+//TODO: is bool the right type?
+bool shouldRotate(int direction){
+    int pin = direction == 1 ? PIN_ROTATE_RIGHT : PIN_ROTATE_LEFT; 
+    return digitalRead(pin);
+}
 
+bool shouldSavePosition(int position){
+    int pin = position == 1 ? PIN_SAVE_POSITION_A : PIN_SAVE_POSITION_B; 
+    return digitalRead(pin);
+}
+
+bool shouldGotoPosition(int position){
+    int pin = position == 1 ? PIN_GOTO_POSITION_A : PIN_GOTO_POSITION_B; 
+    return digitalRead(pin);
+}
+
+void setDirection(int direction){
+    stepper.setSpeed(direction * fStepsPerSecond);
+}
+
+void rotateIfNeeded(int direction){
+  if(shouldRotate(direction))  {
+    setDirection(direction);
+    
+    while(shouldRotate(direction)){
+      CheckPots();
+      stepper.runSpeed();
+      setDirection(direction);
+    }
+  }
+}
+
+void savePositionIfNeeded(int position){
+  if(shouldSavePosition(position)){
+    
+    //keep the current position
+    if(position == A) savedPosA = stepper.currentPosition();
+    else if(position == B) savedPosB = stepper.currentPosition();
+    
+    //"waste" additional signals from the button
+    while(shouldSavePosition(position));
+  }
+}
+
+void gotoPositionIfNeeded(int position){
+  if (shouldGotoPosition(position))  {
+    stepper.setAcceleration(0);
+    stepper.runToNewPosition(stepper.currentPosition());
+    stepper.setMaxSpeed(fStepsPerSecond);
+    stepper.setAcceleration(accel);
+    stepper.runToNewPosition(position == A ? savedPosA : savedPosB);
+
+    //"waste" additional signals from the button
+    while(shouldGotoPosition(position));
+  }
+}
+
+void loop() {  
+  // First, we need to see if either rotate button is down. They always take precedence.
+  rotateIfNeeded(RIGHT);
+  rotateIfNeeded(LEFT);
+  
   // Go see if we need to update our analog conversions
   CheckPots();
   
-  // Check to see if user is trying to save position A or B
-  if(digitalRead(savePositionAPin))
-  {
-    savedPosA = stepper1.currentPosition();
-    if (printDebug)
-    {
-      Serial.print("Saved A at :");
-      Serial.println(savedPosA);
-    }
-    while(digitalRead(savePositionAPin));
-  }
-  if(digitalRead(savePositionBPin))
-  {
-    savedPosB = stepper1.currentPosition();
-    if (printDebug)
-    {
-      Serial.print("Saved B at :");
-      Serial.println(savedPosB);
-    }
-    while(digitalRead(savePositionBPin));
-  }
-    
-  // Check to see if the user wants to go to position A or B
-  if (digitalRead(gotoPositionAPin))
-  {
-    if (printDebug)
-    {
-      // Yup, let's go to position A
-      Serial.print("cur pos = ");
-      Serial.println(stepper1.currentPosition());
-      Serial.print("Going to A = ");
-      Serial.println(savedPosA);
-      Serial.print("Speed = ");
-      Serial.println(fStepsPerSecond);
-      Serial.print("Accel = ");
-      Serial.println(accel);
-    }
-
-    stepper1.setAcceleration(0);
-    stepper1.runToNewPosition(stepper1.currentPosition());
-    
-    stepper1.setMaxSpeed(fStepsPerSecond);
-    stepper1.setAcceleration(accel);
-    stepper1.runToNewPosition(savedPosA);
-
-    if (printDebug)
-    {
-      Serial.print("new pos = ");
-      Serial.println(stepper1.currentPosition());
-    }
-    while(digitalRead(gotoPositionAPin));
-  }
-  else if (digitalRead(gotoPositionBPin))
-  {
-    // Yup, let's go to position B
-    if (printDebug)
-    {
-      Serial.print("cur pos = ");
-      Serial.println(stepper1.currentPosition());
-      Serial.print("Going to B = ");
-      Serial.println(savedPosB);
-      Serial.print("Speed = ");
-      Serial.println(fStepsPerSecond);
-      Serial.print("Accel = ");
-      Serial.println(accel);
-    }
-
-    stepper1.setAcceleration(0);
-    stepper1.runToNewPosition(stepper1.currentPosition());
-
-    stepper1.setMaxSpeed(fStepsPerSecond);
-    stepper1.setAcceleration(accel);
-    stepper1.runToNewPosition(savedPosB);
-
-    if (printDebug)
-    {
-      Serial.print("new pos = ");
-      Serial.println(stepper1.currentPosition());
-    }
-    while(digitalRead(gotoPositionBPin));
-  }
+  savePositionIfNeeded(A);
+  savePositionIfNeeded(B);
+  
+  gotoPositionIfNeeded(A);
+  gotoPositionIfNeeded(B);
 }
 
 // Blink the reset LED:
 void blink(int howManyTimes) 
 {
   int i;
-  for (i=0; i < howManyTimes; i++) 
-  {
-    digitalWrite(ledPin, HIGH);
+  for (i=0; i < howManyTimes; i++) {
+    digitalWrite(PIN_LED, HIGH);
     delay(200);
-    digitalWrite(ledPin, LOW);
+    digitalWrite(PIN_LED, LOW);
     delay(200);
   }
 }
@@ -230,7 +197,7 @@ void CheckPots(void)
   // Only read these once in a while because they take a LONG time
   if (loopCtr == 100)
   {
-    maxSpeed = analogRead(maxSpeedPin);
+    maxSpeed = analogRead(PIN_MAX_SPEED);
 
     // Do the math to scale the 0-1023 value (maxSpeed) to 
     // a range of MIN_STEPS_PER_SECOND to MAX_STEPS_PER_SECOND
@@ -246,7 +213,7 @@ void CheckPots(void)
   // This needs to be scaled too, but to what?
   if (loopCtr >= 200)
   {
-    accel = analogRead(accelPin)/ACCEL_RATIO;
+    accel = analogRead(PIN_ACCELERATION)/ACCEL_RATIO;
     loopCtr = 0;
   } 
 }
